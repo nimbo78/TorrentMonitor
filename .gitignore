@@ -1,11 +1,10 @@
 # Git worktrees
 .worktrees/
 
-# Claude Code local settings
-.claude/
-
 # AI tooling files (not for repo)
+.claude/
 .serena/
+.remember/
 CLAUDE.md
 docs/superpowers/
 
