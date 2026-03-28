@@ -776,6 +776,17 @@ class Database
             return FALSE;
     }
 
+    public static function setPause($id, $val)
+    {
+        $stmt = self::newStatement("UPDATE `torrent` SET `pause` = :val WHERE `id` = :id");
+        $stmt->bindParam(':val', $val);
+        $stmt->bindParam(':id', $id);
+        if ($stmt->execute())
+            return TRUE;
+        else
+            return FALSE;
+    }
+
     public static function deletItem($id)
     {
         $stmt = self::newStatement("DELETE FROM `torrent` WHERE `id` = :id");
