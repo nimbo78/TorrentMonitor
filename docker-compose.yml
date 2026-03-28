@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  torrentmonitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: torrentmonitor:latest
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - tm_data:/var/www/html/torrents
+      - tm_db:/var/www/html
+    environment:
+      - TZ=Europe/Moscow
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    image: torrentmonitor-bot:latest
+    restart: unless-stopped
+    profiles:
+      - bot
+    depends_on:
+      - torrentmonitor
+    volumes:
+      - bot_data:/app/bot/data
+    env_file:
+      - bot/.env
+    environment:
+      - TZ=Europe/Moscow
+
+volumes:
+  tm_data:
+  tm_db:
+  bot_data:
