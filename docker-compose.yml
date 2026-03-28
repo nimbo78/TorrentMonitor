@@ -1,5 +1,9 @@
 version: "3.9"
 
+# Переменные берутся из .env в корне проекта (скопируй из .env.example)
+# Запуск только TM:        docker compose up -d
+# Запуск TM + бот:         docker compose --profile bot up -d
+
 services:
   torrentmonitor:
     build:
@@ -13,7 +17,7 @@ services:
       - tm_data:/var/www/html/torrents
       - tm_db:/var/www/html
     environment:
-      - TZ=Europe/Moscow
+      - TZ=${TZ:-Europe/Moscow}
 
   bot:
     build:
@@ -27,10 +31,21 @@ services:
       - torrentmonitor
     volumes:
       - bot_data:/app/bot/data
-    env_file:
-      - bot/.env
     environment:
-      - TZ=Europe/Moscow
+      - TZ=${TZ:-Europe/Moscow}
+      # Адаптер — всегда HTTP внутри compose-сети
+      - TM_ADAPTER=http
+      # URL сервиса TM внутри docker-сети (менять не нужно)
+      - TM_HTTP_URL=http://torrentmonitor:80
+      # Пароль TorrentMonitor (из .env)
+      - TM_HTTP_PASSWORD=${TM_HTTP_PASSWORD:-admin}
+      # Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_ALLOWED_IDS=${TELEGRAM_ALLOWED_IDS}
+      # Опционально
+      - TM_PAGE_SIZE=${TM_PAGE_SIZE:-10}
+      - TM_POLL_INTERVAL=${TM_POLL_INTERVAL:-300}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
 
 volumes:
   tm_data:

@@ -8,7 +8,8 @@
 CLAUDE.md
 docs/superpowers/
 
-# Bot secrets and runtime data
+# Secrets
+.env
 bot/.env
 bot/data/state.json
 

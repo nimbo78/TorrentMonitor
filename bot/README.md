@@ -87,21 +87,30 @@ Severance [S04E04]
 
 ## 🚀 Быстрый старт
 
+### Через Docker Compose (рекомендуется)
+
 ```bash
-# 1. Скопировать конфиг
-cp bot/.env.example bot/.env
+# 1. Скопировать корневой .env
+cp .env.example .env
 
-# 2. Заполнить обязательное в bot/.env:
-#    TELEGRAM_BOT_TOKEN=...
+# 2. Заполнить .env — минимум три строки:
+#    TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
 #    TELEGRAM_ALLOWED_IDS=123456789
-#    TM_HTTP_URL=http://localhost:8080
-#    TM_HTTP_PASSWORD=admin
+#    TM_HTTP_PASSWORD=admin   # пароль от TorrentMonitor
 
-# 3. Зависимости
-pip install -r bot/requirements.txt
+# 3. Запустить TorrentMonitor + бота
+docker compose --profile bot up -d
+```
 
-# 4. Поехали
-python -m bot.main
+Готово. TM доступен на `http://localhost:8080`, бот работает в фоне.
+
+> **Про `.env` файлы:** корневой `.env` читает сам docker-compose и подставляет переменные в контейнер бота. `bot/.env` нужен только для [запуска без Docker](#-без-docker). Это два разных файла для разных способов запуска.
+
+### Только TorrentMonitor (без бота)
+
+```bash
+cp .env.example .env
+docker compose up -d
 ```
 
 ---
@@ -209,26 +218,24 @@ TM_DB_PATH=/var/www/html/torrentmonitor.sqlite
 
 ## 🐳 Docker
 
-### Только TorrentMonitor
+### Что куда едет
+
+| Переменная в `.env` | Попадает в бота через |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | docker-compose → `environment` |
+| `TELEGRAM_ALLOWED_IDS` | docker-compose → `environment` |
+| `TM_HTTP_PASSWORD` | docker-compose → `environment` |
+| `TM_HTTP_URL` | **захардкожен** в `http://torrentmonitor:80` — менять не нужно |
+| `TMDB_API_KEY` | docker-compose → `environment` |
+
+Внутри compose-сети бот и TM видят друг друга по имени сервиса (`torrentmonitor`), поэтому `localhost` здесь не работает — docker-compose подставляет правильный URL сам.
+
+### Готовые образы из GHCR
+
+При пуше в `master` или теге `v*` GitHub Actions собирает multi-arch образы (`amd64` / `arm64` / `arm/v7`):
 
 ```bash
-docker compose up -d
-```
-
-### TorrentMonitor + бот
-
-```bash
-# bot/.env должен быть заполнен
-docker compose --profile bot up -d
-```
-
-Бот крутится в отдельном контейнере, `state.json` живёт в volume `bot_data`.
-
-### Готовые образы
-
-При пуше в `master` или теге `v*` GitHub Actions собирает multi-arch образы (`amd64` / `arm64` / `arm/v7`) и пушит в GHCR:
-
-```bash
+# Вместо локальной сборки можно использовать готовые образы
 docker pull ghcr.io/nimbo78/torrentmonitor:latest
 docker pull ghcr.io/nimbo78/torrentmonitor-bot:latest
 ```
@@ -237,10 +244,12 @@ docker pull ghcr.io/nimbo78/torrentmonitor-bot:latest
 
 ## 🖥️ Без Docker
 
+Здесь используется `bot/.env` (а не корневой `.env`). Не забудь прописать `TM_HTTP_URL` вручную — в отличие от docker-compose, никто не подставит имя сервиса автоматически.
+
 ```bash
 pip install -r bot/requirements.txt
 cp bot/.env.example bot/.env
-# заполнить bot/.env
+# заполнить bot/.env, включая TM_HTTP_URL=http://твой-сервер:8080
 python -m bot.main
 ```
 
