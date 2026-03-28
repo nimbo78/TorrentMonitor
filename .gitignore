@@ -1,6 +1,19 @@
+# Git worktrees
 .worktrees/
+
+# Claude Code local settings
+.claude/
+
+# AI tooling files (not for repo)
+.serena/
+CLAUDE.md
+docs/superpowers/
+
+# Bot secrets and runtime data
 bot/.env
 bot/data/state.json
+
+# Python cache
 bot/__pycache__/
 bot/**/__pycache__/
 bot/*.pyc
