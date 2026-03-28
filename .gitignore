@@ -1,0 +1,9 @@
+.worktrees/
+bot/.env
+bot/data/state.json
+bot/__pycache__/
+bot/**/__pycache__/
+bot/*.pyc
+bot/**/*.pyc
+bot/.pytest_cache/
+bot/.venv/
