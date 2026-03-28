@@ -38,7 +38,10 @@ async def main() -> None:
     dp.include_router(settings_router)
     dp.include_router(errors_router)
 
+    from bot.notifier import run_notifier
+
     logger.info("Bot starting (adapter=%s)", config.tm_adapter)
+    asyncio.create_task(run_notifier(bot, adapter, config))
     await dp.start_polling(bot, skip_updates=True)
 
 
