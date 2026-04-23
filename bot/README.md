@@ -87,31 +87,68 @@ Severance [S04E04]
 
 ## 🚀 Быстрый старт
 
-### Через Docker Compose (рекомендуется)
+Выбери сценарий:
+
+| Сценарий | Как | Раздел |
+|---|---|---|
+| 🆕 Новая установка TM + бот вместе | Корневой `docker-compose.yml` | [A](#a-свежая-установка-tm--бот) |
+| 🔌 Уже крутится TM, прикрутить только бота | `bot/docker-compose.yml` | [B](#b-бот-к-существующему-tm) |
+| 🐍 Запуск без Docker | Python + `bot/.env` | [Без Docker](#-без-docker) |
+
+---
+
+### A. Свежая установка: TM + бот
 
 ```bash
 # 1. Скопировать корневой .env
 cp .env.example .env
 
-# 2. Заполнить .env — минимум три строки:
+# 2. Заполнить .env — обязательные поля:
+#    TM_DATA_DIR=/path/to/torrentmonitor/data   # где будет tm.sqlite
+#    TM_TORRENTS_DIR=/path/to/torrents
 #    TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
 #    TELEGRAM_ALLOWED_IDS=123456789
-#    TM_HTTP_PASSWORD=admin   # пароль от TorrentMonitor
+#    TM_HTTP_PASSWORD=admin
 
-# 3. Запустить TorrentMonitor + бота
+# 3. Запустить
 docker compose --profile bot up -d
 ```
 
-Готово. TM доступен на `http://localhost:8080`, бот работает в фоне.
+TM поднимется на `http://localhost:${TM_PORT:-8080}`, бот на фоне общается с ним по внутренней compose-сети.
 
-> **Про `.env` файлы:** корневой `.env` читает сам docker-compose и подставляет переменные в контейнер бота. `bot/.env` нужен только для [запуска без Docker](#-без-docker). Это два разных файла для разных способов запуска.
-
-### Только TorrentMonitor (без бота)
-
+**Только TM (без бота):**
 ```bash
-cp .env.example .env
 docker compose up -d
 ```
+
+---
+
+### B. Бот к существующему TM
+
+Если TM уже крутится (например, в `alfonder/torrentmonitor` на Synology) и менять его не хочешь — подключай только бота отдельным compose.
+
+**Шаг 1: добавить в существующий TM два файла из нашего репо**
+
+```bash
+# api.php — новый endpoint для бота
+docker cp api.php <tm-container>:/data/htdocs/api.php
+```
+
+⚠️ **Про `Database.class.php`:** полностью заменять файл через `docker cp` — рискованно, если TM-образ старой версии (остальные PHP файлы могут рассчитывать на старый контракт). Варианты:
+
+- **Безопасный:** вручную добавить в существующий `Database.class.php` только метод `setPause($id, $val)` — смотри код в нашем репо после метода `updateHash`. Минимальный патч, ничего не ломает.
+- **Проще:** мигрировать TM на наш образ (сценарий A) — там `Database.class.php` уже согласован со всем остальным.
+
+**Шаг 2: запустить бота**
+
+```bash
+cd bot
+cp .env.example .env
+# заполнить TM_HTTP_URL, TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_IDS
+docker compose up -d
+```
+
+`bot/docker-compose.yml` тянет готовый образ с GHCR. Если хочешь собирать локально — раскомментируй блок `build:`.
 
 ---
 
@@ -161,6 +198,7 @@ docker compose up -d
 
 | Команда | Что делает |
 |---|---|
+| `/start` · `/help` | Приветствие + список команд |
 | `/list` | Все раздачи — листаешь, сортируешь, тыкаешь |
 | `/addurl` | Добавить раздачу по ссылке с трекера |
 | `/addserial` | Добавить сериал по названию (lostfilm и тп) |
@@ -216,26 +254,40 @@ TM_DB_PATH=/var/www/html/torrentmonitor.sqlite
 
 ---
 
-## 🐳 Docker
+## 🐳 Docker: как что связано
 
-### Что куда едет
+### Сценарий A (корневой compose) — что откуда берётся
 
-| Переменная в `.env` | Попадает в бота через |
+| Переменная в `.env` | Куда идёт |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | docker-compose → `environment` |
-| `TELEGRAM_ALLOWED_IDS` | docker-compose → `environment` |
-| `TM_HTTP_PASSWORD` | docker-compose → `environment` |
+| `TM_DATA_DIR`, `TM_TORRENTS_DIR`, `TM_PORT` | Монтируются/мапятся в контейнер TM |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_IDS`, `TM_HTTP_PASSWORD` | Передаются в контейнер бота |
 | `TM_HTTP_URL` | **захардкожен** в `http://torrentmonitor:80` — менять не нужно |
-| `TMDB_API_KEY` | docker-compose → `environment` |
+| `TMDB_API_KEY`, `TM_PAGE_SIZE`, `TM_POLL_INTERVAL` | В контейнер бота |
 
-Внутри compose-сети бот и TM видят друг друга по имени сервиса (`torrentmonitor`), поэтому `localhost` здесь не работает — docker-compose подставляет правильный URL сам.
+Внутри compose-сети бот и TM видят друг друга по имени сервиса (`torrentmonitor`) — никаких IP и портов знать не надо.
+
+### Сценарий B (`bot/docker-compose.yml`)
+
+Тут бот один. `TM_HTTP_URL` уже нужно указать явно — бот обращается к внешнему TM (через публичный URL или `http://host-ip:port`). Смотри `bot/.env.example`.
+
+### Пути внутри образа TM
+
+Совместимы с `alfonder/torrentmonitor` — веб-корень в `/data/htdocs/`:
+
+| Путь в контейнере | Что |
+|---|---|
+| `/data/htdocs/db/tm.sqlite` | База |
+| `/data/htdocs/torrents/` | `.torrent` файлы |
+| `/data/htdocs/api.php` | Endpoint для бота |
+
+Миграция с alfonder-образа = просто подменить образ, волумы те же самые.
 
 ### Готовые образы из GHCR
 
 При пуше в `master` или теге `v*` GitHub Actions собирает multi-arch образы (`amd64` / `arm64` / `arm/v7`):
 
 ```bash
-# Вместо локальной сборки можно использовать готовые образы
 docker pull ghcr.io/nimbo78/torrentmonitor:latest
 docker pull ghcr.io/nimbo78/torrentmonitor-bot:latest
 ```
