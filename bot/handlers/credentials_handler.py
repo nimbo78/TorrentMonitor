@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.handlers.common import close_button
 
 router = Router()
 
@@ -23,6 +24,7 @@ def _creds_keyboard(creds: list[dict]) -> InlineKeyboardMarkup:
             text=f"{mark} {c['tracker']}",
             callback_data=f"cred:edit:{c['id']}",
         )])
+    buttons.append([close_button()])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -48,7 +50,7 @@ async def cb_cred_edit(call: CallbackQuery, state: FSMContext):
     cred_id = int(call.data.split(":")[2])
     await state.update_data(cred_id=cred_id)
     await state.set_state(CredStates.waiting_login)
-    await call.message.answer("Введи логин (или — чтобы оставить пустым):")
+    await call.message.answer("Введи логин (или «-» чтобы оставить пустым, /cancel — отмена):")
     await call.answer()
 
 
@@ -57,7 +59,7 @@ async def process_login(message: Message, state: FSMContext):
     val = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(login=val)
     await state.set_state(CredStates.waiting_password)
-    await message.answer("Введи пароль (или — чтобы оставить пустым):")
+    await message.answer("Введи пароль (или «-» чтобы оставить пустым, /cancel — отмена):")
 
 
 @router.message(CredStates.waiting_password)
@@ -65,7 +67,7 @@ async def process_password(message: Message, state: FSMContext):
     val = "" if message.text.strip() == "-" else message.text.strip()
     await state.update_data(password=val)
     await state.set_state(CredStates.waiting_passkey)
-    await message.answer("Введи passkey (или — чтобы пропустить):")
+    await message.answer("Введи passkey (или «-» чтобы пропустить, /cancel — отмена):")
 
 
 @router.message(CredStates.waiting_passkey)

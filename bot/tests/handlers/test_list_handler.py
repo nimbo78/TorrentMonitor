@@ -34,14 +34,14 @@ def test_fmt_item_timestamp_truncated():
 def test_keyboard_single_page():
     items = [make_item(i) for i in range(3)]
     kb = _build_list_keyboard(items, page=0, page_size=10, sort="date")
-    # 3 item rows + nav row + sort row = 5
-    assert len(kb.inline_keyboard) == 5
+    # 3 item rows + nav row + sort row + close row = 6
+    assert len(kb.inline_keyboard) == 6
 
 
 def test_keyboard_multipage_nav():
     items = [make_item(i) for i in range(15)]
     kb = _build_list_keyboard(items, page=0, page_size=10, sort="date")
-    nav_row = kb.inline_keyboard[-2]
+    nav_row = kb.inline_keyboard[-3]
     # page 0: no ◀️, has ▶️ → 2 buttons (counter + next)
     assert len(nav_row) == 2
     assert nav_row[-1].callback_data == "list:date:1"
@@ -50,15 +50,23 @@ def test_keyboard_multipage_nav():
 def test_keyboard_middle_page_has_both_arrows():
     items = [make_item(i) for i in range(25)]
     kb = _build_list_keyboard(items, page=1, page_size=10, sort="date")
-    nav_row = kb.inline_keyboard[-2]
+    nav_row = kb.inline_keyboard[-3]
     assert len(nav_row) == 3  # ◀️ counter ▶️
 
 
 def test_keyboard_sort_toggle():
     items = [make_item(i) for i in range(3)]
     kb = _build_list_keyboard(items, page=0, page_size=10, sort="date")
-    sort_btn = kb.inline_keyboard[-1][0]
+    # sort row is second from the end (close row last)
+    sort_btn = kb.inline_keyboard[-2][0]
     assert sort_btn.callback_data == "list:name:0"
+
+
+def test_keyboard_has_close_button():
+    items = [make_item(i) for i in range(3)]
+    kb = _build_list_keyboard(items, page=0, page_size=10, sort="date")
+    close_btn = kb.inline_keyboard[-1][0]
+    assert close_btn.callback_data == "close"
 
 
 def test_keyboard_clamps_page():

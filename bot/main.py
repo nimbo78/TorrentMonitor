@@ -20,6 +20,7 @@ async def main() -> None:
     dp = Dispatcher()
 
     # Импорт и регистрация роутеров
+    from bot.handlers.common import router as common_router
     from bot.handlers.help_handler import router as help_router
     from bot.handlers.list_handler import router as list_router
     from bot.handlers.manage_handler import router as manage_router
@@ -32,6 +33,8 @@ async def main() -> None:
     dp.message.middleware(InjectMiddleware(adapter, config))
     dp.callback_query.middleware(InjectMiddleware(adapter, config))
 
+    # common должен быть первым — /cancel работает до FSM-хендлеров
+    dp.include_router(common_router)
     dp.include_router(help_router)
     dp.include_router(list_router)
     dp.include_router(manage_router)

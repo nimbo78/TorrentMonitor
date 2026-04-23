@@ -2,6 +2,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.handlers.common import close_button
 from bot.notifier import _fetch_tmdb_poster
 
 router = Router()
@@ -15,7 +16,10 @@ def _item_keyboard(item_id: int, paused: bool, sort: str, page: int) -> InlineKe
             InlineKeyboardButton(text=label, callback_data=f"do:{action}:{item_id}:{sort}:{page}"),
             InlineKeyboardButton(text="🗑 Удалить", callback_data=f"do:confirm_del:{item_id}:{sort}:{page}"),
         ],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data=f"list:{sort}:{page}")],
+        [
+            InlineKeyboardButton(text="◀️ Назад", callback_data=f"list:{sort}:{page}"),
+            close_button(),
+        ],
     ])
 
 
@@ -25,6 +29,7 @@ def _confirm_del_keyboard(item_id: int, sort: str, page: int) -> InlineKeyboardM
             InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"do:delete:{item_id}:{sort}:{page}"),
             InlineKeyboardButton(text="❌ Отмена", callback_data=f"item:{item_id}:{sort}:{page}"),
         ],
+        [close_button()],
     ])
 
 

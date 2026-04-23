@@ -18,7 +18,7 @@ class AddStates(StatesGroup):
 @router.message(Command("addurl"))
 async def cmd_addurl(message: Message, state: FSMContext):
     await state.set_state(AddStates.waiting_url)
-    await message.answer("Отправь URL темы с трекера:")
+    await message.answer("Отправь URL темы с трекера (/cancel — отмена):")
 
 
 @router.message(AddStates.waiting_url)
@@ -35,14 +35,17 @@ async def process_url(message: Message, state: FSMContext, adapter: TMAdapter, c
 @router.message(Command("addserial"))
 async def cmd_addserial(message: Message, state: FSMContext):
     await state.set_state(AddStates.waiting_serial_tracker)
-    await message.answer("Укажи трекер (например: <code>lostfilm.tv</code>):", parse_mode="HTML")
+    await message.answer(
+        "Укажи трекер (например: <code>lostfilm.tv</code>, /cancel — отмена):",
+        parse_mode="HTML",
+    )
 
 
 @router.message(AddStates.waiting_serial_tracker)
 async def process_serial_tracker(message: Message, state: FSMContext):
     await state.update_data(tracker=message.text.strip())
     await state.set_state(AddStates.waiting_serial_name)
-    await message.answer("Теперь название сериала:")
+    await message.answer("Теперь название сериала (/cancel — отмена):")
 
 
 @router.message(AddStates.waiting_serial_name)

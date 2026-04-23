@@ -1,8 +1,9 @@
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.handlers.common import close_button
 
 router = Router()
 
@@ -29,4 +30,8 @@ async def cmd_errors(message: Message, adapter: TMAdapter, config: Config):
     if len(warnings) > 20:
         lines.append(f"\n…и ещё {len(warnings) - 20}")
 
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer(
+        "\n".join(lines),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[close_button()]]),
+    )

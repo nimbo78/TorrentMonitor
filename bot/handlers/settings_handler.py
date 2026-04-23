@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.handlers.common import close_button
 
 router = Router()
 
@@ -29,6 +30,7 @@ def _settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
             text=f"{key}: {val}",
             callback_data=f"setting:edit:{key}",
         )])
+    buttons.append([close_button()])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -51,7 +53,10 @@ async def cb_setting_edit(call: CallbackQuery, state: FSMContext):
     key = call.data.split(":")[2]
     await state.update_data(key=key)
     await state.set_state(SettingsStates.waiting_value)
-    await call.message.answer(f"Новое значение для <code>{key}</code>:", parse_mode="HTML")
+    await call.message.answer(
+        f"Новое значение для <code>{key}</code> (/cancel — отмена):",
+        parse_mode="HTML",
+    )
     await call.answer()
 
 

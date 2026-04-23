@@ -3,6 +3,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.handlers.common import close_button
 
 router = Router()
 
@@ -64,6 +65,9 @@ def _build_list_keyboard(
         text=f"Сортировать {_SORT_LABELS[other_sort]}",
         callback_data=f"list:{other_sort}:0",
     )])
+
+    # Закрыть
+    buttons.append([close_button()])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
