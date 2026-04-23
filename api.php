@@ -200,23 +200,33 @@ if ($action == 'get_warnings')
 // --- get_credentials ---
 if ($action == 'get_credentials')
 {
-    // Database::getAllCredentials() не возвращает type, поэтому запрос здесь.
-    $stmt = Database::getInstance()->dbh->prepare(
-        "SELECT id, tracker, log, type, necessarily FROM credentials ORDER BY tracker"
-    );
-    $result = [];
-    if ($stmt->execute())
+    $creds = Database::getAllCredentials();
+    if ( ! $creds) $creds = [];
+
+    // getAllCredentials() не возвращает поле type — подтягиваем отдельным запросом.
+    $types = [];
+    try
     {
-        foreach ($stmt as $row)
+        $stmt = Database::getInstance()->dbh->prepare("SELECT tracker, type FROM credentials");
+        if ($stmt && $stmt->execute())
         {
-            $result[] = [
-                'id'          => (int)$row['id'],
-                'tracker'     => $row['tracker'],
-                'log'         => $row['log'],
-                'type'        => $row['type'],
-                'necessarily' => (int)$row['necessarily'],
-            ];
+            foreach ($stmt as $row)
+                $types[$row['tracker']] = $row['type'];
         }
+    }
+    catch (Exception $e) { /* схема без type — будет пустой */ }
+
+    $result = [];
+    foreach ($creds as $c)
+    {
+        $tracker = $c['tracker'];
+        $result[] = [
+            'id'          => (int)$c['id'],
+            'tracker'     => $tracker,
+            'log'         => $c['login'],
+            'type'        => isset($types[$tracker]) ? $types[$tracker] : '',
+            'necessarily' => (int)$c['necessarily'],
+        ];
     }
     api_ok($result);
 }
