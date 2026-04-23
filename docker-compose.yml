@@ -12,10 +12,10 @@ services:
     image: torrentmonitor:latest
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${TM_PORT:-8080}:80"
     volumes:
-      - tm_data:/var/www/html/torrents
-      - tm_db:/var/www/html
+      - ${TM_DATA_DIR}:/data/htdocs/db
+      - ${TM_TORRENTS_DIR}:/data/htdocs/torrents
     environment:
       - TZ=${TZ:-Europe/Moscow}
 
@@ -33,21 +33,14 @@ services:
       - bot_data:/app/bot/data
     environment:
       - TZ=${TZ:-Europe/Moscow}
-      # Адаптер — всегда HTTP внутри compose-сети
       - TM_ADAPTER=http
-      # URL сервиса TM внутри docker-сети (менять не нужно)
       - TM_HTTP_URL=http://torrentmonitor:80
-      # Пароль TorrentMonitor (из .env)
       - TM_HTTP_PASSWORD=${TM_HTTP_PASSWORD:-admin}
-      # Telegram
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_IDS=${TELEGRAM_ALLOWED_IDS}
-      # Опционально
       - TM_PAGE_SIZE=${TM_PAGE_SIZE:-10}
       - TM_POLL_INTERVAL=${TM_POLL_INTERVAL:-300}
       - TMDB_API_KEY=${TMDB_API_KEY:-}
 
 volumes:
-  tm_data:
-  tm_db:
   bot_data:
