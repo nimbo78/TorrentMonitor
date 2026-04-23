@@ -200,17 +200,23 @@ if ($action == 'get_warnings')
 // --- get_credentials ---
 if ($action == 'get_credentials')
 {
-    $creds = Database::getAllCredentials();
-    if ( ! $creds) $creds = [];
+    // Database::getAllCredentials() не возвращает type, поэтому запрос здесь.
+    $stmt = Database::getInstance()->dbh->prepare(
+        "SELECT id, tracker, log, type, necessarily FROM credentials ORDER BY tracker"
+    );
     $result = [];
-    foreach ($creds as $c)
+    if ($stmt->execute())
     {
-        $result[] = [
-            'id'          => (int)$c['id'],
-            'tracker'     => $c['tracker'],
-            'log'         => $c['login'],
-            'necessarily' => (int)$c['necessarily'],
-        ];
+        foreach ($stmt as $row)
+        {
+            $result[] = [
+                'id'          => (int)$row['id'],
+                'tracker'     => $row['tracker'],
+                'log'         => $row['log'],
+                'type'        => $row['type'],
+                'necessarily' => (int)$row['necessarily'],
+            ];
+        }
     }
     api_ok($result);
 }
