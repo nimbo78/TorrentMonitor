@@ -93,3 +93,69 @@ def test_load_state_missing_file(tmp_path):
         assert state["last_seen"] == "2000-01-01 00:00:00"
     finally:
         notifier_mod.STATE_FILE = orig
+
+
+@pytest.mark.asyncio
+async def test_poster_cache_hit(tmp_path, monkeypatch):
+    """Повторный запрос того же имени не должен ходить в TMDB."""
+    import bot.notifier as notifier_mod
+    notifier_mod.POSTER_CACHE_FILE = tmp_path / "poster_cache.json"
+    notifier_mod._POSTER_CACHE.clear()
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"results": [{"poster_path": "/x.jpg"}]}
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("bot.notifier.httpx.AsyncClient", return_value=mock_client):
+        url1 = await _fetch_tmdb_poster("Severance", "key")
+        url2 = await _fetch_tmdb_poster("Severance", "key")
+
+    assert url1 == url2
+    assert url1.endswith("/x.jpg")
+    # второй вызов не должен делать HTTP-запрос
+    assert mock_client.get.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_poster_cache_miss_also_cached(tmp_path, monkeypatch):
+    """Промахи тоже кэшируются чтобы не долбить TMDB."""
+    import bot.notifier as notifier_mod
+    notifier_mod.POSTER_CACHE_FILE = tmp_path / "poster_cache.json"
+    notifier_mod._POSTER_CACHE.clear()
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"results": []}
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("bot.notifier.httpx.AsyncClient", return_value=mock_client):
+        r1 = await _fetch_tmdb_poster("NotReal", "key")
+        r2 = await _fetch_tmdb_poster("NotReal", "key")
+
+    assert r1 is None
+    assert r2 is None
+    # первый вызов делает 2 запроса (tv + movie), второй — 0 (из кэша)
+    assert mock_client.get.call_count == 2
+
+
+def test_poster_cache_roundtrip(tmp_path):
+    """Кэш переживает рестарт — save на диск, load с диска."""
+    import bot.notifier as notifier_mod
+    notifier_mod.POSTER_CACHE_FILE = tmp_path / "poster_cache.json"
+    notifier_mod._POSTER_CACHE.clear()
+    notifier_mod._POSTER_CACHE["Severance"] = ("https://img/poster.jpg", 1700000000.0)
+
+    notifier_mod._save_poster_cache()
+
+    # имитируем рестарт бота
+    notifier_mod._POSTER_CACHE.clear()
+    notifier_mod._load_poster_cache()
+
+    assert notifier_mod._POSTER_CACHE["Severance"] == ("https://img/poster.jpg", 1700000000.0)
