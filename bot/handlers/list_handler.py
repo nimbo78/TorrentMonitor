@@ -1,4 +1,4 @@
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
@@ -94,7 +94,7 @@ async def cmd_list(message: Message, adapter: TMAdapter, config: Config):
 
 
 @router.callback_query(F.data.startswith("list:"))
-async def cb_list(call: CallbackQuery, adapter: TMAdapter, config: Config):
+async def cb_list(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Config):
     _, sort, page_str = call.data.split(":")
     page = int(page_str)
 
@@ -107,12 +107,24 @@ async def cb_list(call: CallbackQuery, adapter: TMAdapter, config: Config):
     text = f"📋 <b>Раздачи</b> ({len(items)}) — {_SORT_LABELS[sort]}\n\n"
     chunk = items[page * config.page_size: (page + 1) * config.page_size]
     text += "\n\n".join(_fmt_item(i) for i in chunk)
+    kb = _build_list_keyboard(items, page, config.page_size, sort)
 
-    await call.message.edit_text(
-        text,
-        reply_markup=_build_list_keyboard(items, page, config.page_size, sort),
-        parse_mode="HTML",
-    )
+    # Если предыдущее сообщение было фото (карточка с постером) —
+    # edit_text не сработает, удаляем и шлём новое текстовое
+    if call.message.photo:
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        await bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+    else:
+        await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
     await call.answer()
 
 

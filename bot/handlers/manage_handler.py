@@ -1,7 +1,8 @@
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.adapters.base import TMAdapter
 from bot.config import Config
+from bot.notifier import _fetch_tmdb_poster
 
 router = Router()
 
@@ -27,8 +28,72 @@ def _confirm_del_keyboard(item_id: int, sort: str, page: int) -> InlineKeyboardM
     ])
 
 
+async def _replace_message(
+    call: CallbackQuery,
+    bot: Bot,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    photo_url: str | None = None,
+) -> None:
+    """Удаляет текущее сообщение и шлёт новое (фото или текст).
+    Нужно потому что Telegram не даёт через edit конвертировать text → photo и обратно.
+    """
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    if photo_url:
+        await bot.send_photo(
+            chat_id=call.message.chat.id,
+            photo=photo_url,
+            caption=text,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+    else:
+        await bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode="HTML",
+        )
+
+
+def _item_caption(item: dict) -> str:
+    ep = f" [{item['ep']}]" if item.get("ep") else ""
+    state = "⏸ на паузе" if item.get("pause") else "▶️ активна"
+    return (
+        f"<b>{item['name']}</b>{ep}\n"
+        f"🔗 {item['tracker']}\n"
+        f"📅 {str(item.get('timestamp', ''))[:16]}\n"
+        f"Статус: {state}"
+    )
+
+
+async def _render_item(
+    call: CallbackQuery,
+    bot: Bot,
+    config: Config,
+    item: dict,
+    sort: str,
+    page: int,
+) -> None:
+    poster = None
+    if config.tmdb_api_key:
+        poster = await _fetch_tmdb_poster(item["name"], config.tmdb_api_key)
+
+    await _replace_message(
+        call,
+        bot,
+        text=_item_caption(item),
+        reply_markup=_item_keyboard(item["id"], bool(item.get("pause")), sort, page),
+        photo_url=poster,
+    )
+
+
 @router.callback_query(F.data.startswith("item:"))
-async def cb_item(call: CallbackQuery, adapter: TMAdapter, config: Config):
+async def cb_item(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Config):
     _, item_id_str, sort, page_str = call.data.split(":")
     item_id = int(item_id_str)
     page = int(page_str)
@@ -43,24 +108,12 @@ async def cb_item(call: CallbackQuery, adapter: TMAdapter, config: Config):
         await call.answer("Элемент не найден", show_alert=True)
         return
 
-    ep = f" [{item['ep']}]" if item.get("ep") else ""
-    state = "⏸ на паузе" if item.get("pause") else "▶️ активна"
-    text = (
-        f"<b>{item['name']}</b>{ep}\n"
-        f"🔗 {item['tracker']}\n"
-        f"📅 {str(item.get('timestamp', ''))[:16]}\n"
-        f"Статус: {state}"
-    )
-    await call.message.edit_text(
-        text,
-        reply_markup=_item_keyboard(item_id, bool(item.get("pause")), sort, page),
-        parse_mode="HTML",
-    )
+    await _render_item(call, bot, config, item, sort, page)
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("do:"))
-async def cb_do(call: CallbackQuery, adapter: TMAdapter, config: Config):
+async def cb_do(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Config):
     parts = call.data.split(":")
     action = parts[1]
     item_id = int(parts[2])
@@ -71,10 +124,11 @@ async def cb_do(call: CallbackQuery, adapter: TMAdapter, config: Config):
         r = await adapter.list_torrents(sort_by=sort)
         item = next((i for i in (r.get("data") or []) if i["id"] == item_id), None)
         name = item["name"] if item else f"#{item_id}"
-        await call.message.edit_text(
-            f"⚠️ Удалить <b>{name}</b>?",
+        await _replace_message(
+            call,
+            bot,
+            text=f"⚠️ Удалить <b>{name}</b>?",
             reply_markup=_confirm_del_keyboard(item_id, sort, page),
-            parse_mode="HTML",
         )
         await call.answer()
         return
@@ -98,9 +152,11 @@ async def cb_do(call: CallbackQuery, adapter: TMAdapter, config: Config):
         # Возвращаемся к списку
         from bot.handlers.list_handler import cb_list
         call.data = f"list:{sort}:{page}"
-        await cb_list(call, adapter=adapter, config=config)
+        await cb_list(call, bot=bot, adapter=adapter, config=config)
     else:
         await call.answer("✅ Готово")
-        # Обновляем карточку элемента
-        call.data = f"item:{item_id}:{sort}:{page}"
-        await cb_item(call, adapter=adapter, config=config)
+        # Перерисовываем карточку элемента
+        r2 = await adapter.list_torrents(sort_by=sort)
+        item = next((i for i in (r2.get("data") or []) if i["id"] == item_id), None)
+        if item:
+            await _render_item(call, bot, config, item, sort, page)
