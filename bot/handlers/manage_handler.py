@@ -8,6 +8,36 @@ from bot.notifier import _fetch_tmdb_poster
 router = Router()
 
 
+# URL-шаблоны для форумных трекеров (тип forum).
+# RSS-трекеры (lostfilm и пр.) ссылку на конкретную раздачу не дают.
+_TRACKER_URL_TEMPLATES: dict[str, str] = {
+    "rutracker.org":     "https://rutracker.org/forum/viewtopic.php?t={id}",
+    "rutracker.net":     "https://rutracker.net/forum/viewtopic.php?t={id}",
+    "nnmclub.to":        "https://nnmclub.to/forum/viewtopic.php?t={id}",
+    "kinozal.tv":        "https://kinozal.tv/details.php?id={id}",
+    "kinozal.me":        "https://kinozal.me/details.php?id={id}",
+    "rutor.is":          "https://rutor.is/torrent/{id}",
+    "rutor.info":        "https://rutor.info/torrent/{id}",
+    "megapeer.vip":      "https://megapeer.vip/torrent.php?id={id}",
+    "baibako.tv_forum":  "https://baibako.tv/forum/viewtopic.php?t={id}",
+    "tracker.0day.kiev.ua": "https://tracker.0day.kiev.ua/details.php?id={id}",
+    "tv.mekc.info":      "https://tv.mekc.info/details.php?id={id}",
+    "casstudio.tk":      "https://casstudio.tk/index.php?t={id}",
+}
+
+
+def _topic_url(item: dict) -> str | None:
+    """Возвращает URL конкретной раздачи если умеем для этого трекера."""
+    tracker = item.get("tracker", "")
+    topic_id = item.get("torrent_id", "")
+    if not topic_id:
+        return None
+    template = _TRACKER_URL_TEMPLATES.get(tracker)
+    if template:
+        return template.format(id=topic_id)
+    return None
+
+
 def _item_keyboard(item_id: int, paused: bool, sort: str, page: int) -> InlineKeyboardMarkup:
     action = "resume" if paused else "pause"
     label = "▶️ Возобновить" if paused else "⏸ Пауза"
@@ -62,15 +92,22 @@ async def _replace_message(
             text=text,
             reply_markup=reply_markup,
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
 
 
 def _item_caption(item: dict) -> str:
     ep = f" [{item['ep']}]" if item.get("ep") else ""
     state = "⏸ на паузе" if item.get("pause") else "▶️ активна"
+    tracker = item.get("tracker", "")
+    url = _topic_url(item)
+    if url:
+        tracker_line = f'🔗 <a href="{url}">{tracker} — раздача</a>'
+    else:
+        tracker_line = f"🔗 {tracker}"
     return (
         f"<b>{item['name']}</b>{ep}\n"
-        f"🔗 {item['tracker']}\n"
+        f"{tracker_line}\n"
         f"📅 {str(item.get('timestamp', ''))[:16]}\n"
         f"Статус: {state}"
     )
