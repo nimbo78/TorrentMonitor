@@ -150,9 +150,8 @@ async def cb_do(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Confi
     if action == "delete":
         await call.answer("🗑 Удалено")
         # Возвращаемся к списку
-        from bot.handlers.list_handler import cb_list
-        call.data = f"list:{sort}:{page}"
-        await cb_list(call, bot=bot, adapter=adapter, config=config)
+        from bot.handlers.list_handler import render_list
+        await render_list(call, bot, adapter, config, sort, page)
     else:
         await call.answer("✅ Готово")
         # Перерисовываем карточку элемента

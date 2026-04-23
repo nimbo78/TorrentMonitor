@@ -93,11 +93,14 @@ async def cmd_list(message: Message, adapter: TMAdapter, config: Config):
     )
 
 
-@router.callback_query(F.data.startswith("list:"))
-async def cb_list(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Config):
-    _, sort, page_str = call.data.split(":")
-    page = int(page_str)
-
+async def render_list(
+    call: CallbackQuery,
+    bot: Bot,
+    adapter: TMAdapter,
+    config: Config,
+    sort: str,
+    page: int,
+) -> None:
     r = await adapter.list_torrents(sort_by=sort)
     if r["error"]:
         await call.answer(f"❌ {r['msg']}", show_alert=True)
@@ -125,6 +128,11 @@ async def cb_list(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Con
     else:
         await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
+
+@router.callback_query(F.data.startswith("list:"))
+async def cb_list(call: CallbackQuery, bot: Bot, adapter: TMAdapter, config: Config):
+    _, sort, page_str = call.data.split(":")
+    await render_list(call, bot, adapter, config, sort, int(page_str))
     await call.answer()
 
 
