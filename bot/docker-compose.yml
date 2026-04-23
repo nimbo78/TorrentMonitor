@@ -1,0 +1,29 @@
+version: "3.9"
+
+# Standalone-режим: бот к уже работающему TorrentMonitor.
+#
+# Предварительно один раз скопируй в существующий TM:
+#   docker cp ../api.php <tm-container>:/data/htdocs/api.php
+#   docker cp ../class/Database.class.php <tm-container>:/data/htdocs/class/Database.class.php
+#
+# Запуск:
+#   cp .env.example .env   # заполни TM_HTTP_URL, TELEGRAM_*
+#   docker compose up -d
+
+services:
+  bot:
+    image: ghcr.io/nimbo78/torrentmonitor-bot:latest
+    # Или собери локально из корня репо:
+    # build:
+    #   context: ..
+    #   dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - bot_data:/app/bot/data
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Europe/Moscow}
+
+volumes:
+  bot_data:
