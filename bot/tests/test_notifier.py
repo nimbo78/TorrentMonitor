@@ -1,7 +1,12 @@
 import pytest
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
-from bot.notifier import _notification_text, _fetch_tmdb_poster, _notify_item, _load_state, _save_state
+from bot.notifier import (
+    _notification_text, _fetch_tmdb_poster, _notify_item,
+    _load_state, _save_state, _notifier_tick,
+)
+from bot.adapters.base import ok, err
 
 def make_item(name="Severance", ep="S04E04", ts="2026-03-28 22:36:00", tracker="lostfilm.tv"):
     return {"id": 2, "name": name, "ep": ep, "timestamp": ts, "tracker": tracker, "pause": 0}
@@ -78,19 +83,36 @@ def test_state_roundtrip(tmp_path):
     notifier_mod.STATE_FILE = tmp_path / "state.json"
     try:
         _save_state({"last_seen": "2026-03-28 22:36:00"})
-        state = _load_state()
+        state, is_first_run = _load_state()
         assert state["last_seen"] == "2026-03-28 22:36:00"
+        assert is_first_run is False
     finally:
         notifier_mod.STATE_FILE = orig
 
 
-def test_load_state_missing_file(tmp_path):
+def test_load_state_first_run_bootstraps_to_now(tmp_path, monkeypatch):
+    """Первый запуск должен дать last_seen = now(), а не 2000 год."""
     import bot.notifier as notifier_mod
     orig = notifier_mod.STATE_FILE
     notifier_mod.STATE_FILE = tmp_path / "nonexistent.json"
+    monkeypatch.setattr(notifier_mod, "_now_ts", lambda: "2026-04-24 12:00:00")
     try:
-        state = _load_state()
-        assert state["last_seen"] == "2000-01-01 00:00:00"
+        state, is_first_run = _load_state()
+        assert state["last_seen"] == "2026-04-24 12:00:00"
+        assert is_first_run is True
+    finally:
+        notifier_mod.STATE_FILE = orig
+
+
+def test_load_state_existing_preserves_value(tmp_path):
+    import bot.notifier as notifier_mod
+    orig = notifier_mod.STATE_FILE
+    notifier_mod.STATE_FILE = tmp_path / "state.json"
+    try:
+        _save_state({"last_seen": "2020-01-01 00:00:00"})
+        state, is_first_run = _load_state()
+        assert state["last_seen"] == "2020-01-01 00:00:00"
+        assert is_first_run is False
     finally:
         notifier_mod.STATE_FILE = orig
 
@@ -143,6 +165,72 @@ async def test_poster_cache_miss_also_cached(tmp_path, monkeypatch):
     assert r2 is None
     # первый вызов делает 2 запроса (tv + movie), второй — 0 (из кэша)
     assert mock_client.get.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_notifier_tick_logs_api_error(tmp_path, caplog):
+    import bot.notifier as notifier_mod
+    notifier_mod.STATE_FILE = tmp_path / "state.json"
+    notifier_mod._HEALTH.update({"last_poll_ok": None, "last_error": None})
+
+    adapter = MagicMock()
+    adapter.get_new_items = AsyncMock(return_value=err("boom"))
+    cfg = make_cfg()
+    bot = MagicMock()
+    state = {"last_seen": "2026-04-24 00:00:00"}
+
+    with caplog.at_level(logging.WARNING, logger="bot.notifier"):
+        await _notifier_tick(bot, adapter, cfg, state)
+
+    assert any("TM API error: boom" in m for m in caplog.messages)
+    assert notifier_mod._HEALTH["last_poll_ok"] is False
+    assert notifier_mod._HEALTH["last_error"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_notifier_tick_empty_logs_since(tmp_path, caplog):
+    import bot.notifier as notifier_mod
+    notifier_mod.STATE_FILE = tmp_path / "state.json"
+
+    adapter = MagicMock()
+    adapter.get_new_items = AsyncMock(return_value=ok([]))
+    cfg = make_cfg()
+    bot = MagicMock()
+    state = {"last_seen": "2026-04-24 00:00:00"}
+
+    with caplog.at_level(logging.INFO, logger="bot.notifier"):
+        new_state = await _notifier_tick(bot, adapter, cfg, state)
+
+    assert new_state["last_seen"] == "2026-04-24 00:00:00"  # не изменился
+    assert any("No new items since 2026-04-24 00:00:00" in m for m in caplog.messages)
+    assert notifier_mod._HEALTH["last_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_notifier_tick_new_items_updates_state_and_health(tmp_path):
+    import bot.notifier as notifier_mod
+    notifier_mod.STATE_FILE = tmp_path / "state.json"
+
+    items = [
+        make_item(name="Severance", ts="2026-04-24 22:36:00"),
+        make_item(name="Ubuntu", ts="2026-04-24 10:00:00"),
+    ]
+    adapter = MagicMock()
+    adapter.get_new_items = AsyncMock(return_value=ok(items))
+    cfg = make_cfg(tmdb_key="")  # без TMDB → send_message
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    bot.send_photo = AsyncMock()
+    state = {"last_seen": "2026-04-23 00:00:00"}
+
+    new_state = await _notifier_tick(bot, adapter, cfg, state)
+
+    assert new_state["last_seen"] == "2026-04-24 22:36:00"  # max из items
+    assert notifier_mod._HEALTH["last_count"] == 2
+    assert notifier_mod._HEALTH["last_poll_ok"] is True
+    # state.json записан на диск
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert saved["last_seen"] == "2026-04-24 22:36:00"
 
 
 def test_poster_cache_roundtrip(tmp_path):

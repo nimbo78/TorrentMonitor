@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import httpx
@@ -21,14 +22,44 @@ _POSTER_CACHE: dict[str, tuple[Optional[str], float]] = {}
 _POSTER_TTL_HIT = 7 * 24 * 3600   # 7 дней для найденных постеров
 _POSTER_TTL_MISS = 24 * 3600      # 1 день для промахов — вдруг добавят в TMDB
 
+# Состояние нотификатора для /status команды
+_HEALTH: dict = {
+    "last_poll_at": None,   # str — время последнего опроса
+    "last_poll_ok": None,   # bool — был ли последний опрос успешен
+    "last_error": None,     # str | None — текст последней ошибки
+    "last_count": 0,        # int — сколько найдено в последний раз
+    "last_seen": None,      # str — актуальный last_seen
+}
 
-def _load_state() -> dict:
+
+def _now_ts() -> str:
+    """Текущее время в формате TM timestamp."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_health() -> dict:
+    """Публичный геттер для /status handler."""
+    return dict(_HEALTH)
+
+
+def read_last_seen() -> str:
+    """Публичный геттер для /poll handler."""
+    state, _ = _load_state()
+    return state["last_seen"]
+
+
+def _load_state() -> tuple[dict, bool]:
+    """Возвращает (state, is_first_run).
+
+    При отсутствии/повреждении файла bootstrap-им last_seen в текущее время,
+    чтобы не флудить историческими раздачами на первом запуске.
+    """
     if STATE_FILE.exists():
         try:
-            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            return json.loads(STATE_FILE.read_text(encoding="utf-8")), False
         except Exception:
             pass
-    return {"last_seen": "2000-01-01 00:00:00"}
+    return {"last_seen": _now_ts()}, True
 
 
 def _save_state(state: dict) -> None:
@@ -118,25 +149,64 @@ async def _notify_item(bot: Bot, config: Config, item: dict) -> None:
             logger.warning("Failed to notify user %d: %s", user_id, e)
 
 
+async def _notifier_tick(
+    bot: Bot, adapter: TMAdapter, config: Config, state: dict
+) -> dict:
+    """Одна итерация опроса. Обновляет state и _HEALTH, возвращает обновлённый state."""
+    since = state["last_seen"]
+    _HEALTH["last_poll_at"] = _now_ts()
+    _HEALTH["last_seen"] = since
+
+    logger.info("Polling since %s", since)
+    try:
+        r = await adapter.get_new_items(since)
+    except Exception as e:
+        logger.error("Notifier exception: %s", e)
+        _HEALTH["last_poll_ok"] = False
+        _HEALTH["last_error"] = str(e)
+        return state
+
+    if r["error"]:
+        msg = r.get("msg") or "unknown error"
+        logger.warning("TM API error: %s", msg)
+        _HEALTH["last_poll_ok"] = False
+        _HEALTH["last_error"] = msg
+        return state
+
+    items = r.get("data") or []
+    _HEALTH["last_poll_ok"] = True
+    _HEALTH["last_error"] = None
+    _HEALTH["last_count"] = len(items)
+
+    if not items:
+        logger.info("No new items since %s", since)
+        return state
+
+    # Обновляем last_seen до отправки, чтобы не дублировать при ошибке отправки
+    new_last = max(i["timestamp"] for i in items)
+    for item in items:
+        await _notify_item(bot, config, item)
+    state["last_seen"] = new_last
+    _save_state(state)
+    _HEALTH["last_seen"] = new_last
+    logger.info("Found %d new item(s), new last_seen=%s", len(items), new_last)
+    return state
+
+
 async def run_notifier(bot: Bot, adapter: TMAdapter, config: Config) -> None:
     """Infinite polling loop — runs as a background task alongside the dispatcher."""
-    logger.info("Notifier started (interval=%ds)", config.poll_interval)
     _load_poster_cache()
-    state = _load_state()
+    state, is_first_run = _load_state()
+    logger.info(
+        "Notifier started (interval=%ds, last_seen=%s, first_run=%s)",
+        config.poll_interval, state["last_seen"], is_first_run,
+    )
+    if is_first_run:
+        # Сохраняем bootstrap-нутый last_seen сразу, чтобы падение до первого опроса
+        # не приводило к повторной инициализации на "2000-01-01".
+        _save_state(state)
+    _HEALTH["last_seen"] = state["last_seen"]
 
     while True:
-        try:
-            r = await adapter.get_new_items(state["last_seen"])
-            if not r["error"] and r["data"]:
-                items = r["data"]
-                logger.info("Found %d new item(s)", len(items))
-                # Обновляем last_seen до отправки чтобы не дублировать при ошибке отправки
-                new_last = max(i["timestamp"] for i in items)
-                for item in items:
-                    await _notify_item(bot, config, item)
-                state["last_seen"] = new_last
-                _save_state(state)
-        except Exception as e:
-            logger.error("Notifier error: %s", e)
-
+        state = await _notifier_tick(bot, adapter, config, state)
         await asyncio.sleep(config.poll_interval)
