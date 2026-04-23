@@ -1,0 +1,24 @@
+# Git и IDE
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# AI tooling
+.claude
+.serena
+.remember
+CLAUDE.md
+docs/superpowers
+
+# Секреты и локальные
+.env
+bot/.env
+bot/data/state.json
+
+# Python
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
