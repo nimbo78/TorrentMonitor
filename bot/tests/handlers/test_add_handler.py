@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from bot.handlers.add_handler import _tracker_keyboard, cmd_addserial, cb_pick_tracker, AddStates
+from bot.handlers.add_handler import (
+    _tracker_keyboard, _quality_keyboard,
+    cmd_addserial, cb_pick_tracker, cb_pick_quality, process_serial_name,
+    AddStates,
+)
 from bot.adapters.base import ok, err
 
 def _make_cfg():
@@ -86,6 +90,60 @@ async def test_addserial_falls_back_to_known_rss_list_when_no_type():
         "addserial:tracker:lostfilm-mirror",
         "addserial:tracker:lostfilm.tv",
     ]
+
+
+def test_quality_keyboard_shows_three_options_and_close():
+    kb = _quality_keyboard()
+    # первая строка — 3 кнопки качества, вторая — Закрыть
+    assert len(kb.inline_keyboard) == 2
+    assert len(kb.inline_keyboard[0]) == 3
+    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"
+    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:1"
+    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:2"
+    assert kb.inline_keyboard[1][0].callback_data == "close"
+
+
+@pytest.mark.asyncio
+async def test_process_serial_name_advances_to_quality():
+    """После ввода имени не вызывает add_serial, а переходит в выбор качества."""
+    msg = MagicMock()
+    msg.text = "Severance"
+    msg.answer = AsyncMock()
+    state = MagicMock()
+    state.update_data = AsyncMock()
+    state.set_state = AsyncMock()
+
+    await process_serial_name(msg, state)
+
+    state.update_data.assert_awaited_once_with(name="Severance")
+    state.set_state.assert_awaited_once_with(AddStates.waiting_serial_quality)
+    msg.answer.assert_awaited_once()
+    args = msg.answer.await_args
+    # в сообщении есть клавиатура с качествами
+    kb = args.kwargs["reply_markup"]
+    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"
+
+
+@pytest.mark.asyncio
+async def test_cb_pick_quality_calls_add_serial_with_hd():
+    call = MagicMock()
+    call.data = "addserial:quality:2"  # FHD 1080
+    call.message = MagicMock()
+    call.message.delete = AsyncMock()
+    call.message.answer = AsyncMock()
+    call.answer = AsyncMock()
+
+    state = MagicMock()
+    state.get_data = AsyncMock(return_value={"tracker": "lostfilm.tv", "name": "Severance"})
+    state.clear = AsyncMock()
+
+    adapter = MagicMock()
+    adapter.add_serial = AsyncMock(return_value=ok(None, "Сериал добавлен."))
+
+    await cb_pick_quality(call, state, adapter, _make_cfg())
+
+    adapter.add_serial.assert_awaited_once_with("lostfilm.tv", "Severance", 2)
+    state.clear.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,23 @@ router = Router()
 class AddStates(StatesGroup):
     waiting_url = State()
     waiting_serial_name = State()
+    waiting_serial_quality = State()
+
+
+# Качество в том же порядке что и в веб-UI TorrentMonitor
+_QUALITY_OPTIONS: list[tuple[int, str]] = [
+    (0, "SD"),
+    (1, "HD 720 MP4"),
+    (2, "FHD 1080"),
+]
+
+
+def _quality_keyboard() -> InlineKeyboardMarkup:
+    row = [
+        InlineKeyboardButton(text=label, callback_data=f"addserial:quality:{hd}")
+        for hd, label in _QUALITY_OPTIONS
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=[row, [close_button()]])
 
 
 # ───────── /addurl ─────────
@@ -105,13 +122,35 @@ async def cb_pick_tracker(call: CallbackQuery, state: FSMContext):
 
 
 @router.message(AddStates.waiting_serial_name)
-async def process_serial_name(message: Message, state: FSMContext, adapter: TMAdapter, config: Config):
-    data = await state.get_data()
-    tracker = data["tracker"]
+async def process_serial_name(message: Message, state: FSMContext):
     name = message.text.strip()
+    await state.update_data(name=name)
+    await state.set_state(AddStates.waiting_serial_quality)
+    await message.answer(
+        f"Название: <b>{name}</b>\nВыбери качество:",
+        parse_mode="HTML",
+        reply_markup=_quality_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("addserial:quality:"))
+async def cb_pick_quality(
+    call: CallbackQuery, state: FSMContext, adapter: TMAdapter, config: Config
+):
+    hd = int(call.data.split(":", 2)[2])
+    data = await state.get_data()
+    tracker = data.get("tracker", "")
+    name = data.get("name", "")
     await state.clear()
-    r = await adapter.add_serial(tracker, name)
+
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    r = await adapter.add_serial(tracker, name, hd)
     if r["error"]:
-        await message.answer(f"❌ {r['msg']}")
+        await call.message.answer(f"❌ {r['msg']}")
     else:
-        await message.answer(f"✅ {r['msg']}")
+        await call.message.answer(f"✅ {r['msg']}")
+    await call.answer()
