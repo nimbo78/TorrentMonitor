@@ -36,6 +36,21 @@ async def process_url(message: Message, state: FSMContext, adapter: TMAdapter, c
 
 # ───────── /addserial ─────────
 
+# RSS-трекеры (для сериалов). Используется как фолбэк, если api.php не
+# возвращает поле type (совместимость с alfonder-образом).
+_KNOWN_RSS_TRACKERS = {
+    "lostfilm.tv", "lostfilm-mirror", "baibako.tv", "newstudio.tv",
+    "hamsterstudio.org",
+}
+
+
+def _is_rss(cred: dict) -> bool:
+    t = cred.get("type")
+    if t:
+        return t == "RSS"
+    return cred.get("tracker") in _KNOWN_RSS_TRACKERS
+
+
 def _tracker_keyboard(trackers: list[str]) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text=f"📺 {t}", callback_data=f"addserial:tracker:{t}")]
@@ -54,7 +69,11 @@ async def cmd_addserial(message: Message, adapter: TMAdapter, config: Config):
 
     creds = r["data"] or []
     # Сериалы добавляются на RSS-трекерах. Форумные — через /addurl.
-    rss_trackers = sorted({c["tracker"] for c in creds if c.get("type") == "RSS"})
+    # Берём только трекеры с настроенным логином — иначе TM всё равно откажется.
+    rss_trackers = sorted({
+        c["tracker"] for c in creds
+        if _is_rss(c) and c.get("log")
+    })
 
     if not rss_trackers:
         await message.answer(

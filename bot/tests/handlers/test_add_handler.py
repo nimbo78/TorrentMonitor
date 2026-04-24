@@ -39,7 +39,7 @@ async def test_addserial_empty_list_no_state(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_addserial_filters_rss_only():
+async def test_addserial_filters_rss_only_using_type():
     adapter = MagicMock()
     adapter.get_credentials = AsyncMock(return_value=ok([
         {"id": 1, "tracker": "rutracker.org", "log": "u", "type": "forum", "necessarily": 1},
@@ -58,9 +58,34 @@ async def test_addserial_filters_rss_only():
     kb = captured_kb["kb"]
     callback_datas = [row[0].callback_data for row in kb.inline_keyboard if row[0].callback_data != "close"]
     assert callback_datas == ["addserial:tracker:baibako.tv", "addserial:tracker:lostfilm.tv"]
-    # форумные — отфильтрованы
-    assert not any("rutracker" in c for c in callback_datas)
-    assert not any("nnmclub" in c for c in callback_datas)
+
+
+@pytest.mark.asyncio
+async def test_addserial_falls_back_to_known_rss_list_when_no_type():
+    """Если api.php не вернул type (старый alfonder образ) — используем whitelist."""
+    adapter = MagicMock()
+    adapter.get_credentials = AsyncMock(return_value=ok([
+        {"id": 1, "tracker": "rutracker.org",    "log": "u", "necessarily": 1},
+        {"id": 2, "tracker": "lostfilm.tv",      "log": "u", "necessarily": 1},
+        {"id": 3, "tracker": "lostfilm-mirror",  "log": "u", "necessarily": 1},
+        {"id": 4, "tracker": "hamsterstudio.org", "log": "",  "necessarily": 1},  # без логина
+        {"id": 5, "tracker": "nnmclub.to",       "log": "u", "necessarily": 1},
+    ]))
+    captured_kb = {}
+    msg = MagicMock()
+    async def _answer(text, reply_markup=None, **kw):
+        captured_kb["kb"] = reply_markup
+    msg.answer = AsyncMock(side_effect=_answer)
+
+    await cmd_addserial(msg, adapter, _make_cfg())
+
+    kb = captured_kb["kb"]
+    callback_datas = [row[0].callback_data for row in kb.inline_keyboard if row[0].callback_data != "close"]
+    # только известные RSS + с заполненным log
+    assert callback_datas == [
+        "addserial:tracker:lostfilm-mirror",
+        "addserial:tracker:lostfilm.tv",
+    ]
 
 
 @pytest.mark.asyncio

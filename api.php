@@ -202,29 +202,13 @@ if ($action == 'get_credentials')
 {
     $creds = Database::getAllCredentials();
     if ( ! $creds) $creds = [];
-
-    // getAllCredentials() не возвращает поле type — подтягиваем отдельным запросом.
-    $types = [];
-    try
-    {
-        $stmt = Database::getInstance()->dbh->prepare("SELECT tracker, type FROM credentials");
-        if ($stmt && $stmt->execute())
-        {
-            foreach ($stmt as $row)
-                $types[$row['tracker']] = $row['type'];
-        }
-    }
-    catch (Exception $e) { /* схема без type — будет пустой */ }
-
     $result = [];
     foreach ($creds as $c)
     {
-        $tracker = $c['tracker'];
         $result[] = [
             'id'          => (int)$c['id'],
-            'tracker'     => $tracker,
+            'tracker'     => $c['tracker'],
             'log'         => $c['login'],
-            'type'        => isset($types[$tracker]) ? $types[$tracker] : '',
             'necessarily' => (int)$c['necessarily'],
         ];
     }
@@ -273,31 +257,22 @@ if ($action == 'update_setting')
 if ($action == 'get_new_items')
 {
     $since = $_POST['since'];
-    $stmt = Database::getInstance()->dbh->prepare(
-        "SELECT t.id, t.tracker, t.name, t.torrent_id, t.ep, t.timestamp, t.pause,
-                COALESCE(c.type, '') AS type
-         FROM torrent t
-         LEFT JOIN credentials c ON c.tracker = t.tracker
-         WHERE t.timestamp > :since
-         ORDER BY t.timestamp DESC"
-    );
-    $stmt->bindParam(':since', $since);
+    $rows = Database::getTorrentsList('date', 'DESC');
+    if ( ! $rows) $rows = [];
     $result = [];
-    if ($stmt->execute())
+    foreach ($rows as $row)
     {
-        foreach ($stmt as $row)
-        {
-            $result[] = [
-                'id'         => (int)$row['id'],
-                'name'       => $row['name'],
-                'tracker'    => $row['tracker'],
-                'torrent_id' => $row['torrent_id'],
-                'ep'         => $row['ep'],
-                'timestamp'  => $row['timestamp'],
-                'pause'      => (int)$row['pause'],
-                'type'       => $row['type'],
-            ];
-        }
+        if (strcmp($row['timestamp'], $since) <= 0) continue; // t.timestamp > since
+        $result[] = [
+            'id'         => (int)$row['id'],
+            'name'       => $row['name'],
+            'tracker'    => $row['tracker'],
+            'torrent_id' => $row['torrent_id'],
+            'ep'         => $row['ep'],
+            'timestamp'  => $row['timestamp'],
+            'pause'      => (int)$row['pause'],
+            'type'       => isset($row['type']) ? $row['type'] : '',
+        ];
     }
     api_ok($result);
 }
