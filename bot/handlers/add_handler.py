@@ -16,18 +16,31 @@ class AddStates(StatesGroup):
     waiting_serial_quality = State()
 
 
-# Качество в том же порядке что и в веб-UI TorrentMonitor
-_QUALITY_OPTIONS: list[tuple[int, str]] = [
-    (0, "SD"),
-    (1, "HD 720 MP4"),
-    (2, "FHD 1080"),
+# Маппинг hd → качество зависит от трекера (см. pages/_modal-add.php в TM).
+# Порядок кнопок везде одинаковый: SD, HD 720, FHD 1080.
+_QUALITY_OPTIONS_DEFAULT: list[tuple[str, int]] = [
+    ("SD", 0),
+    ("HD 720", 1),
+    ("FHD 1080", 2),
+]
+# lostfilm.tv и lostfilm-mirror используют инвертированные коды для HD/FHD.
+_QUALITY_OPTIONS_LOSTFILM: list[tuple[str, int]] = [
+    ("SD", 0),
+    ("HD 720 MP4", 2),
+    ("FHD 1080", 1),
 ]
 
 
-def _quality_keyboard() -> InlineKeyboardMarkup:
+def _quality_options_for(tracker: str) -> list[tuple[str, int]]:
+    if tracker in ("lostfilm.tv", "lostfilm-mirror"):
+        return _QUALITY_OPTIONS_LOSTFILM
+    return _QUALITY_OPTIONS_DEFAULT
+
+
+def _quality_keyboard(tracker: str) -> InlineKeyboardMarkup:
     row = [
         InlineKeyboardButton(text=label, callback_data=f"addserial:quality:{hd}")
-        for hd, label in _QUALITY_OPTIONS
+        for label, hd in _quality_options_for(tracker)
     ]
     return InlineKeyboardMarkup(inline_keyboard=[row, [close_button()]])
 
@@ -126,10 +139,12 @@ async def process_serial_name(message: Message, state: FSMContext):
     name = message.text.strip()
     await state.update_data(name=name)
     await state.set_state(AddStates.waiting_serial_quality)
+    data = await state.get_data()
+    tracker = data.get("tracker", "")
     await message.answer(
         f"Название: <b>{name}</b>\nВыбери качество:",
         parse_mode="HTML",
-        reply_markup=_quality_keyboard(),
+        reply_markup=_quality_keyboard(tracker),
     )
 
 

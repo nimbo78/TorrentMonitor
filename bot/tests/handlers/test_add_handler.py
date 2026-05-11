@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from bot.handlers.add_handler import (
-    _tracker_keyboard, _quality_keyboard,
+    _tracker_keyboard, _quality_keyboard, _quality_options_for,
     cmd_addserial, cb_pick_tracker, cb_pick_quality, process_serial_name,
     AddStates,
 )
@@ -92,36 +92,80 @@ async def test_addserial_falls_back_to_known_rss_list_when_no_type():
     ]
 
 
-def test_quality_keyboard_shows_three_options_and_close():
-    kb = _quality_keyboard()
-    # первая строка — 3 кнопки качества, вторая — Закрыть
+def test_quality_options_default_mapping():
+    """Для обычных RSS-трекеров: SD=0, HD 720=1, FHD 1080=2."""
+    opts = _quality_options_for("baibako.tv")
+    assert opts == [("SD", 0), ("HD 720", 1), ("FHD 1080", 2)]
+    # для остальных трекеров тоже default
+    assert _quality_options_for("newstudio.tv") == opts
+    assert _quality_options_for("hamsterstudio.org") == opts
+    # неизвестный трекер тоже получает default
+    assert _quality_options_for("unknown.tv") == opts
+
+
+def test_quality_options_lostfilm_mapping():
+    """Для lostfilm.tv и lostfilm-mirror HD/FHD коды инвертированы."""
+    expected = [("SD", 0), ("HD 720 MP4", 2), ("FHD 1080", 1)]
+    assert _quality_options_for("lostfilm.tv") == expected
+    assert _quality_options_for("lostfilm-mirror") == expected
+
+
+def test_quality_keyboard_default():
+    kb = _quality_keyboard("baibako.tv")
     assert len(kb.inline_keyboard) == 2
     assert len(kb.inline_keyboard[0]) == 3
-    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"
-    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:1"
-    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:2"
+    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"  # SD
+    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:1"  # HD 720
+    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:2"  # FHD 1080
     assert kb.inline_keyboard[1][0].callback_data == "close"
 
 
+def test_quality_keyboard_lostfilm_has_swapped_values():
+    """Для lostfilm кнопки HD/FHD имеют инвертированные callback_data."""
+    kb = _quality_keyboard("lostfilm-mirror")
+    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"  # SD
+    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:2"  # HD 720 MP4
+    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:1"  # FHD 1080
+
+
 @pytest.mark.asyncio
-async def test_process_serial_name_advances_to_quality():
-    """После ввода имени не вызывает add_serial, а переходит в выбор качества."""
+async def test_process_serial_name_advances_to_quality_lostfilm():
+    """После ввода имени для lostfilm — клавиатура с lostfilm-маппингом."""
     msg = MagicMock()
     msg.text = "Severance"
     msg.answer = AsyncMock()
     state = MagicMock()
     state.update_data = AsyncMock()
     state.set_state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"tracker": "lostfilm-mirror"})
 
     await process_serial_name(msg, state)
 
     state.update_data.assert_awaited_once_with(name="Severance")
     state.set_state.assert_awaited_once_with(AddStates.waiting_serial_quality)
-    msg.answer.assert_awaited_once()
     args = msg.answer.await_args
-    # в сообщении есть клавиатура с качествами
     kb = args.kwargs["reply_markup"]
-    assert kb.inline_keyboard[0][0].callback_data == "addserial:quality:0"
+    # для lostfilm-mirror FHD 1080 → hd=1, HD 720 MP4 → hd=2
+    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:2"
+    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:1"
+
+
+@pytest.mark.asyncio
+async def test_process_serial_name_default_tracker_uses_default_mapping():
+    msg = MagicMock()
+    msg.text = "Severance"
+    msg.answer = AsyncMock()
+    state = MagicMock()
+    state.update_data = AsyncMock()
+    state.set_state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"tracker": "baibako.tv"})
+
+    await process_serial_name(msg, state)
+
+    args = msg.answer.await_args
+    kb = args.kwargs["reply_markup"]
+    assert kb.inline_keyboard[0][1].callback_data == "addserial:quality:1"
+    assert kb.inline_keyboard[0][2].callback_data == "addserial:quality:2"
 
 
 @pytest.mark.asyncio
